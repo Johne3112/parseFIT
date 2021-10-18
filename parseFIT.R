@@ -53,7 +53,6 @@ readFIT <- function(fnfit,downloadedfit){
     
     fncsv <- paste0(fnfit[[i]],'.csv')
     
-    # myinput <- paste('java -jar ~/EnDuRA_Users/java/FitCSVTool.jar -b',fnfit,fncsv, sep = " ")
     myinput <- paste('java -jar java/FitCSVTool.jar -b',fnfit[[i]],fncsv, sep = " ")
     
     system(myinput)
