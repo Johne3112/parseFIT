@@ -1,26 +1,37 @@
+library(tidyverse)
+
+
 readFITmessage <- function(df,message){
   
-  myData <- df %>% dplyr::filter(Message == message)
-  for(j in 1:nrow(myData)){
-    datarow <- list()
-    for(i in seq(from=4, to=ncol(myData)-1, by=3)){
-      param <- tolower(as.character(myData[j,i]))
-      if( !is.na(param) & param != ''){
-        if(!(param %in% names(datarow))){
-          val = as.numeric(myData[j,i+1])
-          datarow[[param]] <- val
-        }
-      } else {
-        break
-      } 
+  if(message == 'hrv'){
+    dfout <- gethrv(df)
+  } else {
+    myData <- df %>% dplyr::filter(Message == message)
+    dfout <- list() #NEW
+    for(j in 1:nrow(myData)){
+      myrow <- paste0("row_",j)
+      datarow <- list()
+      for(i in seq(from=4, to=ncol(myData)-1, by=3)){
+        param <- tolower(as.character(myData[j,i]))
+        if( !is.na(param) & param != ''){
+          if(!(param %in% names(datarow))){
+            val = as.numeric(myData[j,i+1])
+            datarow[[param]] <- val
+          }
+        } else {
+          break
+        } 
+      }
+
+      dfout[[myrow]] <- datarow #NEW
+      
     }
-    datarow <- as.data.frame(datarow)
-    if(j == 1){
-      dfout <- datarow
-    } else {
-      dfout <- rbind.fill(dfout,datarow)
-    }
+    
+    dfout <- lapply(dfout, data.frame, stringsAsFactors = FALSE)
+    dfout <- dplyr::bind_rows(dfout)
+
   }
+  
   
   #convert lat and long to degrees
   if('position_lat' %in% colnames(dfout)){
@@ -47,18 +58,21 @@ readFITmessage <- function(df,message){
   
 }
 
-readFIT <- function(fnfit,downloadedfit){
+readFIT <- function(fnfit){
   
   for(i in 1:length(fnfit)){
     
     fncsv <- paste0(fnfit[[i]],'.csv')
     
-    myinput <- paste('java -jar java/FitCSVTool.jar -b',fnfit[[i]],fncsv, sep = " ")
+    # myinput <- paste('java -jar ~/EnDuRA_Users/java/FitCSVTool.jar -b',fnfit,fncsv, sep = " ")
+    myinput <- paste0('java -jar java/FitCSVTool.jar -b "',fnfit[[i]],'" "',fncsv,'"')
     
     system(myinput)
     
     df <- read.csv(fncsv, stringsAsFactors = FALSE)
-    df <- df %>% dplyr::filter(Type == 'Data')
+    # df <- readr::read_csv(fncsv)
+    # df <- df %>% dplyr::filter(Type == 'Data')
+    df <- df %>% dplyr::filter(.[[1]] == "Data")
     
     if(i == 1){
       dfout <- df
@@ -71,18 +85,6 @@ readFIT <- function(fnfit,downloadedfit){
     }
     
     
-    
-    ##delete the temp files
-    if (file.exists(fnfit[[i]])) 
-      #Delete file if it exists
-      file.remove(fnfit[[i]])
-    if (file.exists(fncsv)) 
-      #Delete file if it exists
-      file.remove(fncsv)
-    if(!is.null(downloadedfit$fn[[i]])){
-      if (file.exists(downloadedfit$fn[[i]])) 
-        file.remove(downloadedfit$fn[[i]])
-    }
   }
   
   myFIT <- list()
@@ -92,12 +94,20 @@ readFIT <- function(fnfit,downloadedfit){
     myFIT[[m]] <- readFITmessage(dfout,m)
   }
   
+  ##if hrv  in messages bind to record, else set RR to zero
+  if('hrv' %in% messages){
+    dfhrv <- myFIT$hrv %>% dplyr::group_by(timestamp) %>% dplyr::summarise(RR = mean(RR, na.rm = TRUE))
+    myFIT$record <- dplyr::left_join(myFIT$record, dfhrv, by = "timestamp")
+  } else {
+    myFIT$record$RR <- 0
+  }
+  
   return(myFIT)
   
 }
 
 
-parseFIT <- function(fnfitlist,fnlist,downloadedfit){
+parseFIT <- function(fnfitlist,fnlist){
   
   fnfitparse <- NULL
   
@@ -123,8 +133,24 @@ parseFIT <- function(fnfitlist,fnlist,downloadedfit){
     
   }
   
-  data <- readFIT(fnfitparse,downloadedfit)
+  data <- readFIT(fnfitparse)
   
   return(data)  
   
 }
+
+
+read_and_parse_FIT <- function(){
+  #main function to parse a fit file
+  
+    myFIT <- file.choose()
+    df_FIT <- parseFIT(myFIT,myFIT)
+    return(df_FIT)
+
+}
+
+
+### CALL THIS LINE TO BE PROMPTED TO LOAD AND PARSE A FIT FILE
+FIT_list <- read_and_parse_FIT()
+
+view(FIT_list$record)
