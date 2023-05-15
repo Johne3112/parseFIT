@@ -5,6 +5,29 @@ readFITmessage <- function(df,message){
   
   if(message == 'hrv'){
     dfout <- gethrv(df)
+  }else if(message == 'record'){
+    
+    df <- df %>% dplyr::filter(Message == message)
+    
+    timestamp <- c()
+    param <- c()
+    value <- c()
+    
+    for(i in seq(7,ncol(df)-3, by = 3)){
+      timestamp <- c(timestamp,as.numeric(df[,5]))
+      param <- c(param,df[,i])
+      value <- c(value,as.numeric(df[,i+1]))
+    }
+    
+    dfout <- data.frame(timestamp = timestamp,
+                        param = param,
+                        value = value
+    )
+    
+    dfout <- dfout %>% dplyr::filter(!(param %in% c("","unknown")))
+    dfout <- dfout %>% dplyr::group_by(timestamp,param) %>% dplyr::summarise_each( ~ max(.,na.rm = TRUE))
+    dfout <- dfout %>% tidyr::spread(param,value)
+    
   } else {
     myData <- df %>% dplyr::filter(Message == message)
     dfout <- list() #NEW
@@ -22,14 +45,14 @@ readFITmessage <- function(df,message){
           break
         } 
       }
-
+      
       dfout[[myrow]] <- datarow #NEW
       
     }
     
     dfout <- lapply(dfout, data.frame, stringsAsFactors = FALSE)
     dfout <- dplyr::bind_rows(dfout)
-
+    
   }
   
   
@@ -58,6 +81,7 @@ readFITmessage <- function(df,message){
   
 }
 
+
 readFIT <- function(fnfit){
   
   for(i in 1:length(fnfit)){
@@ -65,7 +89,7 @@ readFIT <- function(fnfit){
     fncsv <- paste0(fnfit[[i]],'.csv')
     
     # myinput <- paste('java -jar ~/EnDuRA_Users/java/FitCSVTool.jar -b',fnfit,fncsv, sep = " ")
-    myinput <- paste0('java -jar java/FitCSVTool.jar -b "',fnfit[[i]],'" "',fncsv,'"')
+    myinput <- paste('java -jar java/FitCSVTool.jar -b',fnfit[[i]],fncsv, sep = " ")
     
     system(myinput)
     
@@ -73,6 +97,29 @@ readFIT <- function(fnfit){
     # df <- readr::read_csv(fncsv)
     # df <- df %>% dplyr::filter(Type == 'Data')
     df <- df %>% dplyr::filter(.[[1]] == "Data")
+    
+    #correct timestamp based on session start time
+    df_session <- df %>% dplyr::filter(Message == 'session')
+    if(nrow(df_session > 0)){
+      df_session <- df_session[1,]
+      if(df_session$Field.2 == 'start_time'){
+        #get the start time according to the session
+        start_time <- as.numeric(df_session$Value.2)
+        
+        if(!is.na(start_time)){
+          #get the earliest time from the record
+          df_record <- df %>% dplyr::filter(Message == 'record')
+          record_start <- as.numeric(min(df_record$Value.1, na.rm = TRUE))
+          
+          if(!is.na(record_start)){
+            #calc the delta and adjust record timestamp
+            time_diff <- record_start - start_time
+            print(time_diff)
+            df$Value.1[df$Message == 'record'] <- as.numeric(df$Value.1[df$Message == 'record']) - time_diff
+          }
+        }
+      }
+    }
     
     if(i == 1){
       dfout <- df
@@ -83,7 +130,6 @@ readFIT <- function(fnfit){
         dfout <- rbind.fill(df,dfout)
       }
     }
-    
     
   }
   
@@ -154,3 +200,4 @@ read_and_parse_FIT <- function(){
 FIT_list <- read_and_parse_FIT()
 
 view(FIT_list$record)
+view(FIT_list$session)
